@@ -51,6 +51,14 @@ public class TestLoadBalancerDrainingValve {
         String[] jkActivations = new String[] { "ACT", "DIS" };
         Boolean[] booleans = new Boolean[] { Boolean.TRUE, Boolean.FALSE };
         String[] queryStrings = new String[] { null, "foo=bar" };
+        // Request URI and the expected (relative) Location of the redirect
+        String[][] requestURIs = new String[][] {
+                { "/test/path", "/test/path" },
+                { "//evil.com/path", "/evil.com/path" },
+                { "///evil.com", "/evil.com" },
+                { "/;JSESSIONID=cafebabe/test/path", "/test/path" },
+                { "/;JSESSIONID=cafebabe//evil.com/path", "/evil.com/path" },
+                { "/test/path;JSESSIONID=cafebabe", "/test/path" } };
 
         List<Object[]> parameterSets = new ArrayList<>();
         for (String jkActivation : jkActivations) {
@@ -61,8 +69,18 @@ public class TestLoadBalancerDrainingValve {
                     for (String queryString : queryStrings) {
                         for (Boolean secureRequest : booleans) {
                             for (Boolean secureSessionConfig : booleans) {
-                                parameterSets.add(new Object[] { jkActivation, validSessionId, expectInvokeNext,
-                                        enableIgnore, queryString, secureRequest, secureSessionConfig });
+                                if (expectInvokeNext.booleanValue()) {
+                                    parameterSets.add(new Object[] { jkActivation, validSessionId, expectInvokeNext,
+                                            enableIgnore, queryString, secureRequest, secureSessionConfig,
+                                            requestURIs[0][0], requestURIs[0][1] });
+                                } else {
+                                    // Only the redirect cases use the request URI
+                                    for (String[] requestURI : requestURIs) {
+                                        parameterSets.add(new Object[] { jkActivation, validSessionId,
+                                                expectInvokeNext, enableIgnore, queryString, secureRequest,
+                                                secureSessionConfig, requestURI[0], requestURI[1] });
+                                    }
+                                }
                             }
                         }
                     }
@@ -94,6 +112,12 @@ public class TestLoadBalancerDrainingValve {
     @Parameter(6)
     public boolean secureSessionConfig;
 
+    @Parameter(7)
+    public String requestURI;
+
+    @Parameter(8)
+    public String expectedLocation;
+
 
     @Test
     public void runValve() throws Exception {
@@ -105,7 +129,6 @@ public class TestLoadBalancerDrainingValve {
 
         String sessionCookieName = "JSESSIONID";
         String sessionId = "cafebabe";
-        String requestURI = "/test/path";
         SessionCookieConfig cookieConfig = new CookieConfig();
         cookieConfig.setDomain("example.com");
         cookieConfig.setName(sessionCookieName);
@@ -162,7 +185,7 @@ public class TestLoadBalancerDrainingValve {
                 // These two lines just mean EasyMock.expect(response.addCookie) but for a void method
                 response.addCookie(expectedCookie);
                 EasyMock.expect(ctx.getSessionCookieName()).andReturn(sessionCookieName); // Indirect call
-                String expectedRequestURI = requestURI;
+                String expectedRequestURI = expectedLocation;
                 if (null != queryString) {
                     expectedRequestURI = expectedRequestURI + '?' + queryString;
                 }
